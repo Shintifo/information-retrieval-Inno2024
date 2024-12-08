@@ -63,9 +63,9 @@ class Projection(nn.Module):
 class CLIP(nn.Module):
 	def __init__(
 			self,
+			image_embedding,
+			text_embedding,
 			temperature=1.0,
-			image_embedding=768,
-			text_embedding=768,
 	):
 		super().__init__()
 		self.image_projection = Projection(embedding_dim=image_embedding)
@@ -223,8 +223,7 @@ def get_text_projections(clip_model, text_features) -> torch.Tensor:
 	return text_embeddings
 
 
-def find_matches(query, project_query, embeddings, model, n=6):
-	query_embed = project_query(model, query)  # Project query to shared space
+def find_matches(query_embed, embeddings, n=6):
 	sim = torch.nn.functional.cosine_similarity(query_embed, embeddings)
 	vals, indices = torch.topk(sim, n)
 	return indices
@@ -249,25 +248,34 @@ def inference(
 
 	# For each case:
 	# 	1. Project searched scope with clip model
-	# 	2. Find matches query with projected features
-	# 	3. Display the results
+	#	2. Project query to shared space
+	# 	3. Find matches query with projected features
+	# 	4. Display the results
 
 	match mode:
 		case "txt2img":
 			image_embeddings = get_image_projections(clip_model, scope_features)
-			indices = find_matches(query, get_text_projections, image_embeddings, clip_model)
+			query_proj = get_text_projections(clip_model, query)
+
+			indices = find_matches(query_proj, image_embeddings)
 			plot_results(indices, ds)
 		case "img2txt":
 			text_embeddings = get_text_projections(clip_model, scope_features)
-			indices = find_matches(query, get_image_projections, text_embeddings, clip_model)
+			query_proj = get_image_projections(clip_model, scope_features)
+
+			indices = find_matches(query_proj, text_embeddings)
 			print_results(indices, ds)
 		case "img2img":
 			image_embeddings = get_image_projections(clip_model, scope_features)
-			indices = find_matches(query, get_image_projections, image_embeddings, clip_model)
+			query_proj = get_image_projections(clip_model, scope_features)
+
+			indices = find_matches(query_proj, image_embeddings)
 			plot_results(indices, ds)
 		case "txt2txt":
 			text_embeddings = get_text_projections(clip_model, scope_features)
-			indices = find_matches(query, get_text_projections, text_embeddings, clip_model)
+			query_proj = get_text_projections(clip_model, query)
+
+			indices = find_matches(query_proj, text_embeddings)
 			print_results(indices, ds)
 		case _:
 			raise Exception("Invalid mode")
@@ -313,11 +321,10 @@ if __name__ == "__main__":
 	image_features = torch.load("image_features.pth")
 	text_features = torch.load("text_features.pth")
 
-	# Define model
-	clip_model = CLIP().to(device)
-
-	# Training
+	# Define & train model
+	clip_model = CLIP(image_embedding=768, text_embedding=768,).to(device)
 	clip_model = train(clip_model, image_features, text_features)
+
 
 	# Example of inference txt2img
 	print("TEXT TO IMAGE QUERY")
