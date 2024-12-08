@@ -2,9 +2,10 @@ from typing import List, Tuple
 
 import numpy as np
 
+
 class LSH:
-	def __init__(self, index_data: np.ndarray, bucket_size: int = 3, seed: int = 42, distance_type: str = 'cosine',
-				 num_tables: int = 5):
+	def __init__(self, index_data: np.ndarray, bucket_size: int = 4, seed: int = 462, distance_type: str = 'cosine',
+				 num_tables: int = 10):
 		"""
 		Initialize LSH with data, bucket size, random seed, and distance type.
 
@@ -48,8 +49,13 @@ class LSH:
 		:param hyperplanes: Array of hyperplanes to use for hashing.
 		:return: Hash keys for the data points.
 		"""
-		binary_hashes = np.dot(points, hyperplanes.T) >= 0
-		return binary_hashes.dot(1 << np.arange(binary_hashes.shape[1] - 1, -1, -1))
+		bin_hashes = np.dot(points, hyperplanes.T) >= 0
+
+		num = bin_hashes.shape[1] - 1
+		keys = 1 << np.arange(num, -1, -1)
+
+		hash_keys = bin_hashes.dot(keys)
+		return hash_keys
 
 	def _query_hash_candidates(self, query: np.ndarray, repeat: int = 10) -> List[int]:
 		"""
@@ -62,8 +68,10 @@ class LSH:
 		candidates = set()
 		for i in range(min(repeat, self.num_tables)):
 			hash_key = self._generate_hash_key(query[np.newaxis, :], self.hyperplanes[i])[0]
+
 			if hash_key in self.hash_tables[i]:
 				candidates.update(self.hash_tables[i][hash_key])
+
 		return list(candidates)
 
 	def _euclidean_distance(self, points: np.ndarray, query: np.ndarray) -> np.ndarray:
@@ -85,6 +93,7 @@ class LSH:
 		for idx, hash_key in enumerate(hash_keys):
 			if hash_key not in hash_table:
 				hash_table[hash_key] = []
+
 			hash_table[hash_key].append(self.indices[idx])
 
 		return hash_table
@@ -99,9 +108,10 @@ class LSH:
 		:param repeat: Number of times to hash the query to increase candidate count.
 		:return: Tuple of nearest points, their distances, and their original indices.
 		"""
-		candidates_indices = self._query_hash_candidates(query, repeat=repeat)
+		candidates_indices = self._query_hash_candidates(query, repeat)
+
 		if not candidates_indices:
-			return np.array([]), np.array([]), np.array([])
+			return [], [], []
 
 		candidate_points = self.data[candidates_indices]
 		distances = self.distance_func(candidate_points, query)
@@ -109,10 +119,10 @@ class LSH:
 		nearest_indices = np.argsort(distances)[:k]
 		nearest_points = candidate_points[nearest_indices]
 		nearest_distances = distances[nearest_indices]
+
 		original_indices = np.array(candidates_indices)[nearest_indices]
 
 		return nearest_points, nearest_distances, original_indices
-
 
 
 

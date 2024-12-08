@@ -10,8 +10,8 @@ from PIL import Image
 import torch.nn.functional as F
 from datasets import load_from_disk
 from matplotlib import pyplot as plt
-from sentence_transformers import SentenceTransformer
 from torch.utils.data import TensorDataset, DataLoader
+from sentence_transformers import SentenceTransformer
 from transformers import AutoImageProcessor, AutoModel
 
 '''
@@ -63,52 +63,34 @@ class Projection(nn.Module):
 class CLIP(nn.Module):
 	def __init__(
 			self,
-			image_encoder,
-			text_encoder,
-			image_processor: Optional,
 			temperature=1.0,
 			image_embedding=768,
 			text_embedding=768,
 	):
 		super().__init__()
-		# Need to keep the encoders inside the CLIP model for inference further
-		# Or to enable parameters for training encoders too.
-		self.image_encoder = image_encoder
-		self.text_encoder = text_encoder
-		self.image_processor = image_processor
-		self.freeze_encoders()
-
 		self.image_projection = Projection(embedding_dim=image_embedding)
 		self.text_projection = Projection(embedding_dim=text_embedding)
 		self.temperature = temperature
 
-	def freeze_encoders(self):
-		"""
-		Freeze the encoder parameters to prevent additional training.
-		"""
-		for param in self.image_encoder.parameters():
-			param.requires_grad = False
-		for param in self.text_encoder.parameters():
-			param.requires_grad = False
+	def forward(self, image_features, text_features):
+		device = "cuda" if torch.cuda.is_available() else "cpu"
 
-	def forward(self, image_features: List[np.ndarray], text_features: List[np.ndarray]):
-		'''
-		Accepts images and text features obtained from Image-Model and Text-Model as input.
-
-		:param image_features: List of images' features obtain
-		:param text_features:
-		:return: Loss value
-		'''
+		# Project images and captions to shared space
 		image_embeddings = self.image_projection(image_features)
 		text_embeddings = self.text_projection(text_features)
 
+		# Calculate the dot product (similarity)
 		logits = image_embeddings @ text_embeddings.T * np.exp(self.temperature)
 
+		logits = logits.to(device)
 		labels = torch.arange(logits.shape[1]).to(device)
-		texts_loss = F.cross_entropy(logits.to("cuda"), labels.to("cuda"), reduction='mean')
-		images_loss = F.cross_entropy(logits.T.to("cuda"), labels.to("cuda"), reduction='mean')
-		loss = (images_loss + texts_loss) / 2.0
 
+		# Calculate Loss
+		texts_loss = F.cross_entropy(logits, labels, reduction='mean')
+		images_loss = F.cross_entropy(logits.T, labels, reduction='mean')
+
+		# Average
+		loss = (images_loss + texts_loss) / 2.0
 		return loss.mean()
 
 
@@ -241,29 +223,8 @@ def get_text_projections(clip_model, text_features) -> torch.Tensor:
 	return text_embeddings
 
 
-def encode_text(captions: List[str], clip_model) -> List[np.ndarray]:
-	text_model = clip_model.text_encoder
-	features = torch.tensor(
-		text_model.encode(captions)
-	).to(device)
-	embeds = clip_model.text_projection(features)
-	return embeds
-
-
-def encode_image(image, clip_model):
-	image_model = clip_model.image_encoder
-	processor = clip_model.image_processor
-
-	inputs = processor(images=image, return_tensors="pt")
-	inputs = inputs.to("cuda")
-	features = image_model(**inputs).last_hidden_state[:, 0, :]
-
-	embeds = clip_model.image_projection(features)
-	return embeds
-
-
-def find_matches(query, encode_query, embeddings, model, n=6):
-	query_embed = encode_query(query, model)
+def find_matches(query, project_query, embeddings, model, n=6):
+	query_embed = project_query(model, query)  # Project query to shared space
 	sim = torch.nn.functional.cosine_similarity(query_embed, embeddings)
 	vals, indices = torch.topk(sim, n)
 	return indices
@@ -271,9 +232,9 @@ def find_matches(query, encode_query, embeddings, model, n=6):
 
 def inference(
 		clip_model,
-		query: str | Image.Image,
+		query: np.ndarray,
 		ds,
-		scope_features,
+		scope_features: np.ndarray | torch.tensor,
 		mode: str,
 ):
 	'''
@@ -287,26 +248,26 @@ def inference(
 	'''
 
 	# For each case:
-	# 	1. Project searched scope with clip models
+	# 	1. Project searched scope with clip model
 	# 	2. Find matches query with projected features
 	# 	3. Display the results
 
 	match mode:
 		case "txt2img":
 			image_embeddings = get_image_projections(clip_model, scope_features)
-			indices = find_matches(query, encode_text, image_embeddings, clip_model)
+			indices = find_matches(query, get_text_projections, image_embeddings, clip_model)
 			plot_results(indices, ds)
 		case "img2txt":
 			text_embeddings = get_text_projections(clip_model, scope_features)
-			indices = find_matches(query, encode_image, text_embeddings, clip_model)
+			indices = find_matches(query, get_image_projections, text_embeddings, clip_model)
 			print_results(indices, ds)
 		case "img2img":
 			image_embeddings = get_image_projections(clip_model, scope_features)
-			indices = find_matches(query, encode_image, image_embeddings, clip_model)
+			indices = find_matches(query, get_image_projections, image_embeddings, clip_model)
 			plot_results(indices, ds)
 		case "txt2txt":
 			text_embeddings = get_text_projections(clip_model, scope_features)
-			indices = find_matches(query, encode_text, text_embeddings, clip_model)
+			indices = find_matches(query, get_text_projections, text_embeddings, clip_model)
 			print_results(indices, ds)
 		case _:
 			raise Exception("Invalid mode")
@@ -348,32 +309,32 @@ if __name__ == "__main__":
 	device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 	print("Used device:", device)
 
-	# Load encoding models
-	processor = AutoImageProcessor.from_pretrained("google/vit-base-patch16-224", use_fast=True)
-	image_model = AutoModel.from_pretrained("google/vit-base-patch16-224").to(device)
-	dimensions = 768
-	text_model = SentenceTransformer("mixedbread-ai/mxbai-embed-large-v1", truncate_dim=dimensions).to(device)
-
-	# Or Load precomputed embeddings:
+	# Load precomputed embeddings:
 	image_features = torch.load("image_features.pth")
 	text_features = torch.load("text_features.pth")
 
 	# Define model
-	clip_model = CLIP(image_encoder=image_model, image_processor=processor, text_encoder=text_model).to(device)
+	clip_model = CLIP().to(device)
 
 	# Training
 	clip_model = train(clip_model, image_features, text_features)
 
 	# Example of inference txt2img
+	print("TEXT TO IMAGE QUERY")
 	test_point = 5729
-	query = ds["sentences"][test_point][0]
-	print("Query:", query)
+	query = text_features[test_point]
+	print("Query:", ds["sentences"][test_point][0])
 	inference(clip_model, query, ds, scope_features=image_features, mode="txt2img")
 
+
+
 	# Example of inference img2txt
-	query = load_image_from_url(ds['url'][test_point])
-	plt.imshow(query)
+	print("IMAGE TO TEXT QUERY")
+	test_point = 5729
+	query = image_features[test_point]
+	plt.imshow(load_image_from_url(ds['url'][test_point]))
 	plt.title("Query Image")
 	plt.axis('off')
 	plt.show()
+
 	inference(clip_model, query, ds, scope_features=text_features, mode="img2txt")

@@ -1,6 +1,7 @@
 import heapq
-from typing import List, Tuple, Union, Dict, Optional, Any, Generator
-
+from typing import Dict, Tuple, List, Optional, Generator, Union, Any
+import time
+import torch
 import numpy as np
 
 
@@ -38,10 +39,10 @@ class KDTree:
 		if not points:
 			return None
 
-		axis = depth % self.dimension # Define the estimated dimension
-		sorted_points = sorted(points, key=lambda x: x[1][axis])  # Sort point by chosen dimension
-		median_idx = len(sorted_points) // 2
+		axis = depth % self.dimension
+		sorted_points = sorted(points, key=lambda x: x[1][axis])
 
+		median_idx = len(sorted_points) // 2
 		return {
 			'point': sorted_points[median_idx],
 			'left': self._build_tree(sorted_points[:median_idx], depth + 1),
@@ -61,7 +62,6 @@ class KDTree:
 				return {'point': point, 'left': None, 'right': None}
 
 			axis = depth % self.dimension
-			# TODO check
 			if point[1][axis] < node['point'][1][axis]:
 				node['left'] = _insert(node['left'], point, depth + 1)
 			else:
@@ -85,11 +85,11 @@ class KDTree:
 		"""
 		max_heap = []
 		self._search_knn(self.root, target, k, max_heap)
-		result = [(-d, p) for d, p in max_heap]
+		result = [(abs(dist), p) for dist, p in max_heap]
 		result.sort(key=lambda x: x[0])
 		return result if include_distances else [r[1] for r in result]
 
-	def _search_knn(self, current_node: Optional[Dict[str, Any]],
+	def _search_knn(self, curr_node: Optional[Dict[str, Any]],
 					target_point: np.ndarray, k: int,
 					max_heap: List[Tuple[float, Tuple[int, np.ndarray]]],
 					depth: int = 0) -> None:
@@ -99,16 +99,16 @@ class KDTree:
 		This method uses a max-heap to efficiently track the k closest points found so far.
 
 		Args:
-			current_node: The current node being visited (dictionary with 'point', 'left', 'right').
+			curr_node: The current node being visited (dictionary with 'point', 'left', 'right').
 			target_point: The query point.
 			k: The number of nearest neighbors to find.
 			max_heap: A max-heap (using heapq) storing (-distance, (index, point)).
 			depth: Recursion depth (used for splitting dimension).
 		"""
-		if current_node is None:
+		if curr_node is None:
 			return
 
-		point, embedding = current_node['point']
+		point, embedding = curr_node['point']
 		distance = self.distance_func(target_point, embedding)
 
 		# Push new node to the heap
@@ -122,19 +122,17 @@ class KDTree:
 		axis = depth % self.dimension
 		diff = target_point[axis] - embedding[axis]
 
-		# TODO check
-		if diff < 0:
-			closer = current_node['left']
-			farther = current_node['right']
+		if diff <= 0:
+			clsr = curr_node['left']
+			frthr = curr_node['right']
 		elif diff > 0:
-			farther = current_node['left']
-			closer = current_node['right']
+			frthr = curr_node['left']
+			clsr = curr_node['right']
 
-		self._search_knn(closer, target_point, k, max_heap, depth + 1)
+		self._search_knn(clsr, target_point, k, max_heap, depth + 1)
 
-		# TODO check (double)
 		if abs(diff) < -max_heap[0][0] or len(max_heap) < k:
-			self._search_knn(farther, target_point, k, max_heap, depth + 1)
+			self._search_knn(frthr, target_point, k, max_heap, depth + 1)
 
 	def nearest_neighbor(self, target_point: np.ndarray, k: int = 5, include_distance: bool = True) -> Optional[
 		List[Union[Tuple[float, Tuple[int, np.ndarray]], Tuple[int, np.ndarray]]]]:
@@ -201,3 +199,23 @@ class KDTree:
 
 if __name__ == "__main__":
 	pass
+	# image_data = torch.load("image_features.pth").numpy()
+	# text_data = torch.load("text_features.pth").numpy()
+	# text_data = [[idx, embed] for idx, embed in enumerate(text_data)]
+	# image_data = [(idx, img) for idx, img in enumerate(image_data)]
+	#
+	#
+	# start = time.time()
+	# # Build kdtree on text data
+	# kdtree = KDTree(text_data, dimension=768, distance_type='cosine')
+	# end_build = time.time()
+	#
+	# # Retrieve the nearest neighbors for a test point
+	# result = kdtree.nearest_neighbor(text_data[110][1], k=6)
+	# end_search = time.time()
+	# print(f"Time to build the KDTree: {end_build - start} seconds")
+	# print(f"Time to build the KDTree and Search: {end_search - start} seconds")
+	#
+	# indices = [idx for idx, _ in [point for _, point in result]] if isinstance(result[0], tuple) else [idx for idx, _ in
+	# 																								   result]
+	# print("Nearset neighbors indices", indices, "\n")
