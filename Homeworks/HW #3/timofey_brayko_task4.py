@@ -1,9 +1,9 @@
 import io
 import pprint
+import requests
 from typing import List, Optional
 
 import torch
-import requests
 import numpy as np
 from torch import nn
 from PIL import Image
@@ -11,31 +11,33 @@ import torch.nn.functional as F
 from datasets import load_from_disk
 from matplotlib import pyplot as plt
 from torch.utils.data import TensorDataset, DataLoader
-from sentence_transformers import SentenceTransformer
-from transformers import AutoImageProcessor, AutoModel
+
+
+from timofey_brayko_task1 import load_image_from_url
+
 
 '''
 For the Cross Modal Retrieval I decided to use Multimodal Projection Learning.
-The most common and known model is CLIP model. 
+The most common and known approach is CLIP model. 
 The main concept is to project image and text embeddings into one shared space using Feed Forward Network.
 However, we should somehow keep text and image embeddings close to each other.
-Hence, during the train we treat projected embeddings both for text and image the same.
+Hence, during the train we treat projected embeddings both for text and image to be the same.
 And use the Cross-Entropy Loss to reduce the distance between those embeddings.
 
-The advantage of this approach, that it handles the any dimension sized embeddings.
+The advantage of this approach, that it handles any dimension sized embeddings.
 Moreover, due to approximation, its one of the fastest approach.
 
 Below, I have implemented the Projection class
 responsible for projecting the given embeddings to shared space.
 CLIP model used to train the projections.
-Please note that implementation for notebook and .py file a bit different.
-For .py file I made a few changes to start the code correclty.
-But the main concept and idea is not changed.
-Both for jupyter notebook and .py file you will get the same results.
+
+For me it was enough to train model for 5 epochs approximately. (Best validation loss ~ 15) 
+Due to low dataset size, overfitting appears even in a gap of 10 epochs.
 
 
-For me it was enough to train model for 5 epochs approximately. 
-Due to low dataset size, overfitting appears even in a gap of 10 epochs
+For .py file I've implemented additional functions for convenient testing.
+All you need the embeddings of the dataset and query itself.
+Hope, you find comments helpful.
 '''
 
 
@@ -232,14 +234,14 @@ def find_matches(query_embed, embeddings, n=6):
 def inference(
 		clip_model,
 		query: np.ndarray,
-		ds,
 		scope_features: np.ndarray | torch.tensor,
+		ds,
 		mode: str,
 ):
 	'''
 	Produce the search
 	:param clip_model: Model itself
-	:param query: Query image or text
+	:param query: Query embedding of image or text.
 	:param ds: Loaded dataset
 	:param scope_features: Scope through which the search will be done. Features of text of images obtained from CNN/ViT or RNN/Transformer respectively.
 	:param mode: Search type: txt2img, txt2txt, img2txt, img2img
@@ -247,18 +249,19 @@ def inference(
 	'''
 
 	# For each case:
-	# 	1. Project searched scope with clip model
-	#	2. Project query to shared space
-	# 	3. Find matches query with projected features
+	# 	1. Make projection of searched scope with clip model
+	#	2. Make projection of query to shared space
+	# 	3. Find matches query with projected features, using cosine distance
 	# 	4. Display the results
 
 	match mode:
 		case "txt2img":
+			#Scope projection
 			image_embeddings = get_image_projections(clip_model, scope_features)
-			query_proj = get_text_projections(clip_model, query)
+			query_proj = get_text_projections(clip_model, query) #Query projection
 
-			indices = find_matches(query_proj, image_embeddings)
-			plot_results(indices, ds)
+			indices = find_matches(query_proj, image_embeddings) # Search best matches
+			plot_results(indices, ds) # Display the results
 		case "img2txt":
 			text_embeddings = get_text_projections(clip_model, scope_features)
 			query_proj = get_image_projections(clip_model, scope_features)
@@ -280,12 +283,6 @@ def inference(
 		case _:
 			raise Exception("Invalid mode")
 
-
-def load_image_from_url(url: str) -> np.ndarray:
-	response = requests.get(url)
-	if response.status_code == 200:
-		img = Image.open(io.BytesIO(response.content))
-		return np.array(img)
 
 
 def plot_results(indices, ds):
@@ -322,16 +319,16 @@ if __name__ == "__main__":
 	text_features = torch.load("text_features.pth")
 
 	# Define & train model
-	clip_model = CLIP(image_embedding=768, text_embedding=768,).to(device)
+	clip_model = CLIP(image_embedding=768, text_embedding=768).to(device)
 	clip_model = train(clip_model, image_features, text_features)
 
 
 	# Example of inference txt2img
 	print("TEXT TO IMAGE QUERY")
 	test_point = 5729
-	query = text_features[test_point]
+	query = text_features[test_point] # Take the query from the dataset
 	print("Query:", ds["sentences"][test_point][0])
-	inference(clip_model, query, ds, scope_features=image_features, mode="txt2img")
+	inference(clip_model, query, scope_features=image_features, ds=ds, mode="txt2img")
 
 
 
@@ -339,9 +336,10 @@ if __name__ == "__main__":
 	print("IMAGE TO TEXT QUERY")
 	test_point = 5729
 	query = image_features[test_point]
+	# Display the Query
 	plt.imshow(load_image_from_url(ds['url'][test_point]))
 	plt.title("Query Image")
 	plt.axis('off')
 	plt.show()
-
-	inference(clip_model, query, ds, scope_features=text_features, mode="img2txt")
+	# Perform a search
+	inference(clip_model, query, scope_features=text_features, ds=ds, mode="img2txt")

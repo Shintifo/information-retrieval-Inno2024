@@ -123,12 +123,3 @@ class LSH:
 		original_indices = np.array(candidates_indices)[nearest_indices]
 
 		return nearest_points, nearest_distances, original_indices
-
-
-
-
-
-
-
-if __name__ == "__main__":
-	pass

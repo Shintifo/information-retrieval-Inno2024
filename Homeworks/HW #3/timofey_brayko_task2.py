@@ -197,25 +197,4 @@ class KDTree:
 		return results
 
 
-if __name__ == "__main__":
-	pass
-	# image_data = torch.load("image_features.pth").numpy()
-	# text_data = torch.load("text_features.pth").numpy()
-	# text_data = [[idx, embed] for idx, embed in enumerate(text_data)]
-	# image_data = [(idx, img) for idx, img in enumerate(image_data)]
-	#
-	#
-	# start = time.time()
-	# # Build kdtree on text data
-	# kdtree = KDTree(text_data, dimension=768, distance_type='cosine')
-	# end_build = time.time()
-	#
-	# # Retrieve the nearest neighbors for a test point
-	# result = kdtree.nearest_neighbor(text_data[110][1], k=6)
-	# end_search = time.time()
-	# print(f"Time to build the KDTree: {end_build - start} seconds")
-	# print(f"Time to build the KDTree and Search: {end_search - start} seconds")
-	#
-	# indices = [idx for idx, _ in [point for _, point in result]] if isinstance(result[0], tuple) else [idx for idx, _ in
-	# 																								   result]
-	# print("Nearset neighbors indices", indices, "\n")
+

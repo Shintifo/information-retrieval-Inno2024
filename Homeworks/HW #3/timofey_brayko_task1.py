@@ -51,10 +51,7 @@ def encode_image(img):
 
 def encode_text(captions: List[List[str]]) -> List[np.ndarray]:
 	# Take only the first caption fot the encoding
-	c = []
-	for cap in captions:
-		c.append(cap[0])
-	captions = c
+	captions = [cap[0] for cap in captions]
 	# Produce the embeddings
 	embeds = text_model.encode(captions)
 	return embeds
