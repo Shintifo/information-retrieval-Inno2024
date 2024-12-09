@@ -225,7 +225,7 @@ def get_text_projections(clip_model, text_features) -> torch.Tensor:
 	return text_embeddings
 
 
-def find_matches(query_embed, embeddings, n=6):
+def find_matches(query_embed, embeddings, n=6) -> List[int]:
 	sim = torch.nn.functional.cosine_similarity(query_embed, embeddings)
 	vals, indices = torch.topk(sim, n)
 	return indices

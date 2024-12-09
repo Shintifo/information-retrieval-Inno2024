@@ -58,7 +58,7 @@ def encode_text(captions: List[List[str]]) -> List[np.ndarray]:
 
 
 
-def process_images(indexation=True):
+def process_images(indexation: bool) -> List[Tuple] | List[np.ndarray]:
 	'''
 	Image embedding loop. Process images through chosen model
 	:param indexation: Whether return array of indexed embeddings or pure list of embeddings.
@@ -74,7 +74,7 @@ def process_images(indexation=True):
 	return image_data
 
 
-def process_texts(indexation=True):
+def process_texts(indexation: bool) -> List[Tuple] | List[np.ndarray]:
 	'''
 	Text embedding loop. Process captions through chosen model
 	:param indexation: Whether return array of indexed embeddings or pure list of embeddings.
@@ -96,7 +96,9 @@ if __name__ == "__main__":
 	processor = AutoImageProcessor.from_pretrained("google/vit-base-patch16-224", use_fast=True)
 	image_model = AutoModel.from_pretrained("google/vit-base-patch16-224").to(device)
 
-	image_data = process_images()
-	text_data = process_texts()
+	# Run the embeddings loops
+	# NOTE! Indexation will return the list of Tuples
+	image_data = process_images(indexation=True)
+	text_data = process_texts(indexation=True)
 
 
